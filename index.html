@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ghost Escape: Soul Grinder</title>
+
+<style>
+body { margin: 0; overflow: hidden; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; }
+canvas { display: none; cursor: crosshair; }
+
+#menu { 
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; background: rgba(0,0,0,0.95); padding: 30px;
+    border-radius: 20px; border: 2px solid #444; width: 500px;
+    max-height: 85vh; overflow-y: auto;
+}
+
+.currency { color: #ffd700; font-size: 28px; margin-bottom: 20px; }
+
+.char-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.char-card { background: #151515; padding: 15px; border-radius: 12px; text-align:center; }
+
+.char-name { font-size: 14px; color: #bbb; margin: 6px 0; }
+
+button {
+    padding: 10px; cursor: pointer; border-radius: 6px;
+    background: #333; color: white; width: 100%;
+}
+
+button:hover { background: #555; }
+
+.tier-label { grid-column: span 2; color: #888; margin-top: 10px; }
+</style>
+</head>
+
+<body>
+
+<div id="menu">
+<h1>GHOST ESCAPE</h1>
+<div class="currency">✨ Soulshards: <span id="totalSouls">0</span></div>
+
+<div class="char-grid">
+<div class="tier-label">Starter</div>
+
+<div class="char-card">👻<div class="char-name">Ghost</div><button onclick="startGame('👻')">Select</button></div>
+<div class="char-card">🤖<div class="char-name">Robot</div><button onclick="startGame('🤖')">Select</button></div>
+
+<div class="tier-label">Elite</div>
+
+<div class="char-card">🐲<div class="char-name">Dragon</div><button onclick="startGame('🐲')">Select</button></div>
+<div class="char-card">🧿<div class="char-name">Void King</div><button onclick="buyOrStart('void',15000,'🧿')">15,000</button></div>
+<div class="char-card">🧛<div class="char-name">Night Vampire</div><button onclick="buyOrStart('vampire',25000,'🧛')">25,000</button></div>
+
+<div class="tier-label">Legendary</div>
+<div class="char-card">⚡<div class="char-name">Storm Bringer</div><button onclick="buyOrStart('storm',250000,'⚡')">250,000</button></div>
+<div class="char-card">🛡️<div class="char-name">Titan Guardian</div><button onclick="buyOrStart('titan',500000,'🛡️')">500,000</button></div>
+<div class="char-card">🌀<div class="char-name">Abyss Walker</div><button onclick="buyOrStart('abyss',1000000,'🌀')">1,000,000</button></div>
+</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const menu = document.getElementById('menu');
+
+let totalSouls = parseInt(localStorage.getItem('totalSouls')) || 0;
+let unlocked = JSON.parse(localStorage.getItem('unlockedChars')) || ['👻','🤖','🐲'];
+
+let player = { x:0, y:0, size:20, emoji:'👻', scoreMult:1 };
+
+let enemies = [], pUps = [];
+
+let score = 0, gameOver = false;
+
+let hasShield = false, shieldEnd = 0;
+let hasFire = false, fireEnd = 0;
+let hasIce = false, iceEnd = 0;
+
+let lastPUpSpawn = 0, lastZapTime = 0;
+
+let voidCooldown = 0;
+
+function updateUI(){
+    document.getElementById('totalSouls').innerText = totalSouls;
+}
+
+function buyOrStart(id, price, emoji){
+    if(unlocked.includes(emoji)) startGame(emoji);
+    else if(totalSouls >= price){
+        totalSouls -= price;
+        unlocked.push(emoji);
+        localStorage.setItem('totalSouls', totalSouls);
+        localStorage.setItem('unlockedChars', JSON.stringify(unlocked));
+        updateUI();
+    }
+}
+
+function startGame(choice){
+    player.emoji = choice;
+    player.x = window.innerWidth/2;
+    player.y = window.innerHeight/2;
+
+    player.scoreMult = (choice==='🐲')?2:(choice==='⚡')?3:(choice==='🌀')?5:1;
+    player.size = (choice==='👻')?15:(choice==='🛡️')?45:22;
+
+    if(choice==='🧿'){
+        hasShield = true;
+        shieldEnd = Date.now()+5000;
+    }
+    if(choice==='🛡️'){
+        hasShield = true;
+        shieldEnd = Infinity;
+    }
+
+    menu.style.display="none";
+    canvas.style.display="block";
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    lastPUpSpawn = Date.now();
+    spawnEnemy();
+    requestAnimationFrame(gameLoop);
+}
+
+canvas.addEventListener('mousemove', e=>{
+    player.x=e.clientX;
+    player.y=e.clientY;
+});
+
+function spawnEnemy(){
+    if(gameOver) return;
+
+    enemies.push({
+        x:Math.random()*canvas.width,
+        y:-50,
+        size:9,
+        speed:2.5+(score/800)
+    });
+
+    setTimeout(spawnEnemy, Math.max(100,700-(score/35)));
+}
+
+function gameLoop(){
+    if(gameOver) return;
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+function update(){
+    score += 0.05 * player.scoreMult;
+
+    if(Date.now()-lastPUpSpawn>20000){
+        pUps.push({
+            x:Math.random()*canvas.width,
+            y:Math.random()*canvas.height,
+            type:['🛡️','🔥','❄️'][Math.floor(Math.random()*3)]
+        });
+        lastPUpSpawn=Date.now();
+    }
+
+    if(player.emoji==='⚡' && Date.now()-lastZapTime>2000 && enemies.length>0){
+        enemies.splice(0,1);
+        lastZapTime=Date.now();
+    }
+
+    if(player.emoji==='🧿'){
+        if(!hasShield && Date.now()>voidCooldown){
+            hasShield=true;
+            shieldEnd=Date.now()+5000;
+        }
+    }
+
+    let timeSlow = (player.emoji==='🌀')?0.5:1;
+
+    pUps.forEach((p,i)=>{
+        if(Math.hypot(player.x-p.x,player.y-p.y)<player.size+25){
+            if(p.type==='🛡️'){ hasShield=true; shieldEnd=Date.now()+8000; }
+            if(p.type==='🔥'){ hasFire=true; fireEnd=Date.now()+6000; }
+            if(p.type==='❄️'){ hasIce=true; iceEnd=Date.now()+6000; }
+            pUps.splice(i,1);
+        }
+    });
+
+    enemies.forEach((e,i)=>{
+        const dx=player.x-e.x, dy=player.y-e.y;
+        const dist=Math.hypot(dx,dy);
+
+        let speed = hasIce ? e.speed*0.3 : hasFire ? -e.speed : e.speed;
+        speed*=timeSlow;
+
+        e.x += (dx/dist)*speed;
+        e.y += (dy/dist)*speed;
+
+        if(dist<player.size+e.size){
+            if(hasShield){
+                if(shieldEnd!==Infinity) hasShield=false;
+                enemies.splice(i,1);
+            } else {
+                endGame();
+            }
+        }
+    });
+
+    if(hasShield && shieldEnd!==Infinity && Date.now()>shieldEnd){
+        hasShield=false;
+        if(player.emoji==='🧿'){
+            voidCooldown = Date.now()+10000;
+        }
+    }
+
+    if(hasFire && Date.now()>fireEnd) hasFire=false;
+    if(hasIce && Date.now()>iceEnd) hasIce=false;
+}
+
+function draw(){
+    ctx.fillStyle="#050505";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    if(player.emoji==='🌀'){
+        ctx.beginPath();
+        ctx.arc(player.x,player.y,player.size+30,0,Math.PI*2);
+        ctx.fillStyle="rgba(162,0,255,0.15)";
+        ctx.fill();
+    }
+
+    pUps.forEach(p=>{
+        ctx.font="30px Arial";
+        ctx.fillText(p.type,p.x,p.y);
+    });
+
+    if(hasShield){
+        ctx.beginPath();
+        ctx.arc(player.x,player.y,player.size+15,0,Math.PI*2);
+        ctx.strokeStyle="cyan";
+        ctx.stroke();
+    }
+
+    ctx.font=`${player.size*2}px Arial`;
+    ctx.fillText(player.emoji,player.x,player.y);
+
+    ctx.fillStyle="red";
+    enemies.forEach(e=>{
+        ctx.beginPath();
+        ctx.arc(e.x,e.y,e.size,0,Math.PI*2);
+        ctx.fill();
+    });
+
+    ctx.fillStyle="white";
+    ctx.fillText("Score: "+Math.floor(score),20,40);
+}
+
+function endGame(){
+    gameOver=true;
+    totalSouls += Math.floor(score);
+    localStorage.setItem('totalSouls', totalSouls);
+    alert("Game Over! Score: "+Math.floor(score));
+    location.reload();
+}
+
+updateUI();
+</script>
+
+</body>
+</html>
